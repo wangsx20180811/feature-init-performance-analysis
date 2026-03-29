@@ -1,0 +1,12 @@
+venv
+.git
+.cursor
+.vscode
+__pycache__
+*.pyc
+*.pyo
+.hypothesis
+.pytest_cache
+hr_excel_web/uploads
+hr_excel_web/exports
+hr_excel_web/audit_log.csv

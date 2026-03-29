@@ -1,0 +1,21 @@
+# 手写示例（仅供参考）。推荐直接使用 scripts/deploy_ecs.sh 生成单元（含 User= 非 root）。
+# 默认运行用户: caseexcel（与 deploy_ecs.sh 中 CASE_RUN_USER 一致）
+
+[Unit]
+Description=CASE-Excel_merge HR Web (Flask)
+After=network.target
+
+[Service]
+Type=simple
+User=caseexcel
+Group=caseexcel
+WorkingDirectory=/opt/CASE-Excel_merge
+EnvironmentFile=-/etc/default/case-excel-web
+ExecStart=/opt/CASE-Excel_merge/venv/bin/python /opt/CASE-Excel_merge/main.py
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>员工绩效分析</title>
+  <style>
+    body { font-family: "Microsoft YaHei", sans-serif; background: #f0f3f8; margin: 0; color: #24292f; }
+    header { background: #0969da; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; font-size: 14px; }
+    .wrap { max-width: 920px; margin: 20px auto; padding: 0 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    h2 { font-size: 16px; margin: 0 0 12px; color: #1f2328; }
+    .row { margin-bottom: 12px; }
+    label { display: block; font-size: 13px; color: #57606a; margin-bottom: 4px; }
+    input[type=text], input[type=file], input[type=number], select, textarea {
+      width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 8px; font-size: 14px;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    .files { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .files { grid-template-columns: 1fr; } }
+    .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #ddf4ff; color: #0969da; margin-left: 6px; }
+    button.primary { padding: 10px 20px; border: none; border-radius: 8px; background: #0969da; color: #fff; font-size: 14px; cursor: pointer; margin-right: 8px; margin-top: 6px; }
+    button.secondary { padding: 10px 16px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; cursor: pointer; font-size: 14px; margin-top: 6px; }
+    pre.out { background: #0d1117; color: #e6edf3; padding: 14px; border-radius: 8px; overflow: auto; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; }
+    .flash { color: #cf222e; font-size: 13px; margin-bottom: 10px; }
+    .ok { font-size: 13px; color: #1a7f37; margin-bottom: 8px; }
+    fieldset { border: 1px solid #d8dee4; border-radius: 8px; padding: 12px 14px; margin: 0; }
+    legend { font-size: 13px; padding: 0 6px; color: #57606a; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+    /* 表单功能选择：搜索 + 列表 + 悬停说明 */
+    .op-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 10px; }
+    .op-toolbar .op-search-wrap { flex: 1; min-width: 180px; }
+    .op-match-mode { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #57606a; white-space: nowrap; }
+    .op-match-mode label { display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer; }
+    .op-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
+    @media (max-width: 720px) { .op-picker { grid-template-columns: 1fr; } }
+    .op-list-wrap {
+      border: 1px solid #d0d7de; border-radius: 8px; background: #fafbfc;
+      max-height: 280px; overflow: auto; padding: 6px 0;
+    }
+    .op-group-title {
+      font-size: 11px; color: #656d76; text-transform: none; padding: 6px 12px 4px; font-weight: 600;
+    }
+    .op-item {
+      padding: 8px 12px; font-size: 13px; cursor: pointer; border-left: 3px solid transparent;
+    }
+    .op-item:hover { background: #eaeef2; }
+    .op-item:focus { outline: 2px solid #0969da; outline-offset: -2px; }
+    .op-item.op-item-selected { background: #ddf4ff; border-left-color: #0969da; }
+    .op-item.op-item-hidden { display: none; }
+    .op-group.op-group-hidden { display: none; }
+    .op-detail-panel {
+      border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; font-size: 13px;
+      line-height: 1.55; color: #24292f; background: #fff; min-height: 200px;
+    }
+    .op-detail-panel .op-d-title { font-weight: 600; color: #0969da; margin-bottom: 10px; font-size: 14px; }
+    .op-detail-panel .op-d-section { margin-bottom: 10px; }
+    .op-detail-panel .op-d-h { font-size: 12px; color: #656d76; margin-bottom: 4px; }
+    .op-detail-panel .op-d-placeholder { color: #8c959f; font-style: italic; }
+    .op-hidden-select { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <span>员工绩效分析（{{ username }}）</span>
+    <a href="{{ url_for('logout') }}">退出登录</a>
+  </header>
+  <div class="wrap">
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
+    {% endwith %}
+
+    <form method="post" enctype="multipart/form-data" id="mainform">
+    <div class="card">
+      <h2>上传表格</h2>
+      <p style="font-size:13px;color:#57606a;margin:0 0 12px;">
+        表一为员工基本信息。绩效支持：单文件多 Sheet、单 Sheet 用「年度」列区分、按年拆成多个 Excel 可同时选多个文件。
+        {% if file_a %}<span class="tag">已保存表一</span>{% endif %}
+        {% if has_perf %}<span class="tag">已保存绩效 {{ perf_count }} 个文件</span>{% endif %}
+        {% if has_config %}<span class="tag">已保存 HR 配置</span>{% endif %}
+      </p>
+        <div class="row" style="margin-bottom:12px;">
+          <label>HR 配置（可选，JSON，参见项目内 hr_config.example.json）</label>
+          <input type="file" name="hr_config" accept=".json,application/json" />
+        </div>
+        <div class="files">
+          <div class="row">
+            <label>表一（主表）</label>
+            <input type="file" name="file_a" accept=".xlsx,.xls,.csv,.tsv" />
+          </div>
+          <div class="row">
+            <label>绩效表（可选多个）</label>
+            <input type="file" name="perf_files" accept=".xlsx,.xls,.csv,.tsv" multiple />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:14px;">
+          <label>提示词（可选，简单说法也可尝试）</label>
+          <textarea name="prompt" placeholder="例：预览前10行；2024四季绩效top5；合并（需已上传两表）"></textarea>
+        </div>
+        <button type="submit" class="primary" name="action" value="prompt">仅按提示词处理</button>
+    </div>
+
+    <div class="card">
+      <h2>表单操作（推荐，更稳定）</h2>
+      <fieldset>
+        <legend>选择功能</legend>
+        <p style="font-size:12px;color:#57606a;margin:0 0 8px;">在下方搜索框输入关键字可筛选；悬停某一项可在右侧查看说明（窄屏下说明在列表下方）。</p>
+        <div class="op-toolbar">
+          <div class="op-search-wrap">
+            <label for="op_search">搜索关键字</label>
+            <input type="text" id="op_search" autocomplete="off" placeholder="例如：合并、Top、部门、缺评（精确匹配需与功能名称或内部值完全一致）" />
+          </div>
+          <div class="op-match-mode">
+            <span>匹配方式：</span>
+            <label><input type="radio" name="op_match_mode" value="fuzzy" checked /> 模糊匹配</label>
+            <label><input type="radio" name="op_match_mode" value="exact" /> 精确匹配</label>
+          </div>
+        </div>
+        <input type="hidden" name="operation" id="op" value="preview_a" />
+        <div class="op-picker">
+          <div class="op-list-wrap" id="op_list_wrap" role="listbox" aria-label="功能列表"></div>
+          <div class="op-detail-panel" id="op_detail_panel" aria-live="polite">
+            <div class="op-d-placeholder" id="op_detail_placeholder">将鼠标移到左侧功能名称上，可查看详细介绍、使用场景与注意事项。</div>
+            <div id="op_detail_body" style="display:none;">
+              <div class="op-d-title" id="op_detail_title"></div>
+              <div class="op-d-section">
+                <div class="op-d-h">功能说明</div>
+                <div id="op_detail_desc"></div>
+              </div>
+              <div class="op-d-section">
+                <div class="op-d-h">使用场景</div>
+                <div id="op_detail_scenario"></div>
+              </div>
+              <div class="op-d-section">
+                <div class="op-d-h">注意事项</div>
+                <div id="op_detail_note"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="row" id="blk_rows">
+          <label>预览行数</label>
+          <input type="number" name="preview_rows" value="5" min="1" max="500" />
+        </div>
+        <div class="row" id="blk_merge" style="display:none;">
+          <label>连接列名（两表同名列）</label>
+          <input type="text" name="on_column" value="员工ID" />
+          <div class="grid2" style="margin-top:8px;">
+            <div>
+              <label>合并方式</label>
+              <select name="how">
+                <option value="left">left（保留左表全部行）</option>
+                <option value="inner">inner</option>
+                <option value="outer">outer</option>
+                <option value="right">right</option>
+              </select>
+            </div>
+            <div>
+              <label>右表按连接键去重</label>
+              <select name="dedupe_right">
+                <option value="1" selected>是</option>
+                <option value="0">否</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="row" id="blk_emp" style="display:none;">
+          <label>员工 ID（逗号分隔）</label>
+          <input type="text" name="employee_ids" placeholder="1001,1002" />
+          <label style="margin-top:8px;">ID 列名</label>
+          <input type="text" name="id_column" value="员工ID" />
+        </div>
+        <div class="row" id="blk_date" style="display:none;">
+          <label>日期列名</label>
+          <input type="text" name="date_column" value="入职日期" />
+          <div class="grid2" style="margin-top:8px;">
+            <div>
+              <label>早于（YYYY-MM-DD，可选）</label>
+              <input type="text" name="before_date" placeholder="如 2022-01-01" />
+            </div>
+            <div>
+              <label>晚于（可选）</label>
+              <input type="text" name="after_date" placeholder="如 2021-01-01" />
+            </div>
+          </div>
+        </div>
+        <div class="row" id="blk_topn" style="display:none;">
+          <label>Top N（取前几名，例如 5 表示 Top5）</label>
+          <input type="number" name="annual_top_n" value="5" min="1" max="500" />
+        </div>
+        <div class="row" id="blk_ext" style="display:none;">
+          <div class="grid2">
+            <div>
+              <label>分析主年度</label>
+              <input type="number" name="ext_year" value="2024" min="2000" max="2099" />
+            </div>
+            <div>
+              <label>对比年度（可选，两年对比/汇总表）</label>
+              <input type="number" name="ext_year2" placeholder="如 2023" min="2000" max="2099" />
+            </div>
+          </div>
+          <label style="margin-top:8px;">Top N / 对比条数（按功能使用）</label>
+          <input type="number" name="ext_top_n" value="5" min="1" max="500" />
+        </div>
+      </fieldset>
+      <button type="submit" class="primary" name="action" value="form">执行所选功能</button>
+    </div>
+    </form>
+
+    {% if result_text %}
+    <div class="card">
+      <h2>结果</h2>
+      {% if download_name %}
+        <p class="ok">已生成文件，请点击下载。</p>
+        <p><a href="{{ url_for('download', filename=download_name) }}">下载 {{ download_name }}</a></p>
+      {% endif %}
+      <pre class="out">{{ result_text }}</pre>
+    </div>
+    {% endif %}
+  </div>
+  <script>
+    (function () {
+      // 功能元数据：用于搜索关键字扩展与悬停说明（详细介绍 / 使用场景 / 注意事项）
+      var OP_META = [
+        { value: 'preview_a', label: '预览表一前若干行', group: '基础',
+          kw: '预览 表一 主表 前几行 表头',
+          detail: '读取已上传的员工基本信息表（表一），在页面展示前 N 行文本，便于确认列名、编码与数据样例。',
+          scenario: '刚上传主表后，想快速确认表结构是否正确、日期与 ID 列是否符合预期。',
+          note: '需先上传表一；行数上限 500。仅文本预览，不修改服务器上的文件。' },
+        { value: 'preview_b', label: '预览表二前若干行', group: '基础',
+          kw: '预览 绩效 表二 前几行',
+          detail: '对已上传的绩效数据（可合并多文件）做联合预览，展示前 N 行，便于核对绩效列与年度字段。',
+          scenario: '上传一份或多份绩效表后，在合并或分析前检查绩效数据格式。',
+          note: '需先上传至少一份绩效文件；多 Sheet、多文件会按系统规则合并后再预览。' },
+        { value: 'merge', label: '合并表一与表二（导出 Excel）', group: '基础',
+          kw: '合并 join 左连接 导出 excel 连接列',
+          detail: '以指定连接列（默认员工 ID）将表一与绩效数据做表连接，可设 left/inner 等合并方式，并可对右表按连接键去重，结果导出为 Excel。',
+          scenario: '需要得到「员工信息 + 绩效」一张宽表，供线下透视或存档。',
+          note: '需同时有表一与绩效数据；连接列名在两表中需一致或语义对应；大数据时注意导出文件体积。' },
+        { value: 'by_employee', label: '按员工 ID 同时查两张表', group: '基础',
+          kw: '员工 id 筛选 查询 多人',
+          detail: '根据填写的员工 ID 列表，在表一与绩效中同时检索相关行，合并为可读文本结果。',
+          scenario: '核对少数几名员工的档案与绩效是否一致，或处理员工问询。',
+          note: 'ID 列名需与表中实际列名一致；多个 ID 用英文逗号分隔。' },
+        { value: 'by_date', label: '按入职日期筛选表一', group: '基础',
+          kw: '入职 日期 筛选 早于 晚于',
+          detail: '在表一中按「入职日期」列（可改列名）筛选：早于某日期、晚于某日期或组合条件。',
+          scenario: '按司龄段、某批入职员工做名单抽取。',
+          note: '至少填写「早于」或「晚于」之一；日期格式建议 YYYY-MM-DD。' },
+        { value: 'topn_annual_2024', label: '2024 四季均值 TopN（表一+表二）', group: '基础',
+          kw: '2024 四季 季度 均值 top 排名 绩效',
+          detail: '在 2024 年度内四个季度均有绩效记录的员工中，按四季度绩效均值排序，取前 N 名，并可导出结果表。',
+          scenario: '年度评优、晋升提名时查看全年表现稳定且排名靠前的人员。',
+          note: '当前功能固定分析 2024 年；缺任一季度的员工不会进入该榜单；需表一与绩效均已上传。' },
+        { value: 'ext_desc_dept', label: '按部门描述统计（均值/标准差等）', group: '扩展分析',
+          kw: '部门 均值 标准差 描述统计',
+          detail: '按部门聚合绩效相关指标，输出均值、标准差等描述性统计，便于对比各部门整体水平与离散程度。',
+          scenario: '管理层查看各部门绩效分布概况，为人力配置与校准会准备数据。',
+          note: '扩展分析需表一+绩效；可在 HR 配置中映射列名；年度等参数见下方扩展参数区。' },
+        { value: 'ext_missing', label: '指定年度缺评名单', group: '扩展分析',
+          kw: '缺评 缺考 未评 名单',
+          detail: '在指定年度内识别应评未评或数据缺失的员工清单，便于催办与合规核对。',
+          scenario: '季度末检查各条线是否完成评价，或审计留痕。',
+          note: '缺评规则依赖表结构与配置；请确认绩效表中年度、周期字段完整。' },
+        { value: 'ext_outliers', label: '绩效分离群检测（IQR）', group: '扩展分析',
+          kw: '异常 离群 IQR 箱线图',
+          detail: '使用四分位距（IQR）等方法识别绩效分布中的异常离群点，辅助发现异常高/异常低分。',
+          scenario: '数据质量抽查、识别可能的录入错误或评分异常。',
+          note: '统计规则为粗检，业务上需结合事实复核；非唯一判定依据。' },
+        { value: 'ext_grade', label: '等级分布与占比预警', group: '扩展分析',
+          kw: '等级 分布 占比 预警 强制分布',
+          detail: '统计绩效等级分布及占比，并可按配置做阈值预警（如某等级比例超限）。',
+          scenario: '校准会前检查部门等级分布是否合理、是否符合制度比例。',
+          note: '需在 HR 配置中维护等级与阈值相关映射；不同公司等级体系不同。' },
+        { value: 'ext_consistency', label: '数据一致性检查', group: '扩展分析',
+          kw: '一致性 校验 逻辑',
+          detail: '对表一与绩效之间的关键字段做交叉校验，发现 ID 缺失、重复、不匹配等问题。',
+          scenario: '合并或出报表前的数据质量把关。',
+          note: '具体问题类型以系统输出为准；修复需回到源 Excel 或业务系统。' },
+        { value: 'ext_yoy', label: '两年绩效对比（升降榜）', group: '扩展分析',
+          kw: '两年 同比 升降 对比',
+          detail: '对比两个年度的绩效结果，输出升降变化，用于识别进步明显或退步需关注的人员。',
+          scenario: '年度复盘、人才盘点中的纵向对比。',
+          note: '需填写「分析主年度」与「对比年度」；部分功能依赖配置中的列映射。' },
+        { value: 'ext_dept_top', label: '各部门内 TopN', group: '扩展分析',
+          kw: '部门内 排名 top',
+          detail: '在每个部门内部独立排序，取各部门前 N 名，避免大部门垄断全公司榜单。',
+          scenario: '按部门评优、名额分配到部门后再看部门内排名。',
+          note: '部门字段需能在数据中正确定位；Top N 在扩展参数中设置。' },
+        { value: 'ext_rater', label: '按评分人汇总（宽松度粗看）', group: '扩展分析',
+          kw: '评分人 评委 宽松 严格',
+          detail: '按评分人聚合打分情况，粗略观察不同评委的宽松/严格倾向（仅作参考）。',
+          scenario: '校准会讨论评委风格差异时作辅助信息。',
+          note: '结果为粗粒度统计，不能单独作为人事决策依据；需绩效中有评分人字段。' },
+        { value: 'ext_goal', label: '目标达成率（需目标/完成列）', group: '扩展分析',
+          kw: '目标 完成率 okr',
+          detail: '在具备目标值与实际完成值列时，计算达成率并汇总。',
+          scenario: '目标管理（MBO/OKR）类绩效的量化回顾。',
+          note: '必须在数据或 HR 配置中正确配置目标与完成列；否则无法计算。' },
+        { value: 'ext_calib', label: '校准前后对比（需对应列）', group: '扩展分析',
+          kw: '校准 调整 前后',
+          detail: '若存在校准前分数与校准后分数等列，可对比调整幅度与分布变化。',
+          scenario: '校准会记录留痕、分析校准对结果的影响。',
+          note: '依赖表中是否具备校准相关列；命名需与配置一致。' },
+        { value: 'ext_full_report', label: '汇总报表（多 Sheet Excel）', group: '扩展分析',
+          kw: '汇总 报表 多sheet 导出',
+          detail: '生成包含多个分析结果 Sheet 的汇总 Excel，一次下载多块内容。',
+          scenario: '需要向管理层提交一份打包的分析结果。',
+          note: '生成时间随数据量变化；请确认磁盘与浏览器下载限制。' },
+        { value: 'ext_platform_notes', label: '平台类能力说明（定时/SSO/大模型等）', group: '扩展分析',
+          kw: '平台 sso 定时 大模型 说明',
+          detail: '展示与系统平台能力相关的说明性文字（如对接、定时任务、单点登录、大模型等），具体内容由后端配置。',
+          scenario: 'IT 与 HR 了解系统扩展能力与集成注意事项。',
+          note: '本项以说明为主，不直接对业务数据做数值分析。' }
+      ];
+
+      var op = document.getElementById('op');
+      var opSearch = document.getElementById('op_search');
+      var opListWrap = document.getElementById('op_list_wrap');
+      var placeholderEl = document.getElementById('op_detail_placeholder');
+      var detailBody = document.getElementById('op_detail_body');
+
+      function metaByValue(v) {
+        for (var i = 0; i < OP_META.length; i++) {
+          if (OP_META[i].value === v) return OP_META[i];
+        }
+        return null;
+      }
+
+      function buildList() {
+        var groups = {};
+        OP_META.forEach(function (m) {
+          if (!groups[m.group]) groups[m.group] = [];
+          groups[m.group].push(m);
+        });
+        var html = '';
+        Object.keys(groups).forEach(function (gname) {
+          html += '<div class="op-group" data-group="' + gname + '">';
+          html += '<div class="op-group-title">' + gname + '</div>';
+          groups[gname].forEach(function (m) {
+            html += '<div class="op-item" role="option" tabindex="0" data-value="' + m.value + '">' + escapeHtml(m.label) + '</div>';
+          });
+          html += '</div>';
+        });
+        opListWrap.innerHTML = html;
+      }
+
+      function escapeHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      function itemMatches(m, q, exact) {
+        if (!q) return true;
+        var t = (m.label + ' ' + (m.kw || '') + ' ' + m.value).toLowerCase();
+        var qq = q.trim().toLowerCase();
+        if (exact) {
+          return m.label.toLowerCase() === qq || m.value.toLowerCase() === qq;
+        }
+        return t.indexOf(qq) !== -1;
+      }
+
+      function applyFilter() {
+        var q = opSearch.value || '';
+        var exact = document.querySelector('input[name="op_match_mode"]:checked').value === 'exact';
+        var items = opListWrap.querySelectorAll('.op-item');
+        var groups = opListWrap.querySelectorAll('.op-group');
+        items.forEach(function (el) {
+          var v = el.getAttribute('data-value');
+          var m = metaByValue(v);
+          var show = m && itemMatches(m, q, exact);
+          el.classList.toggle('op-item-hidden', !show);
+        });
+        groups.forEach(function (g) {
+          var vis = g.querySelectorAll('.op-item:not(.op-item-hidden)');
+          g.classList.toggle('op-group-hidden', vis.length === 0);
+        });
+      }
+
+      function setDetailPanel(m) {
+        if (!m) {
+          placeholderEl.style.display = 'block';
+          detailBody.style.display = 'none';
+          return;
+        }
+        placeholderEl.style.display = 'none';
+        detailBody.style.display = 'block';
+        document.getElementById('op_detail_title').textContent = m.label;
+        document.getElementById('op_detail_desc').textContent = m.detail;
+        document.getElementById('op_detail_scenario').textContent = m.scenario;
+        document.getElementById('op_detail_note').textContent = m.note;
+      }
+
+      function selectValue(v, fromClick) {
+        op.value = v;
+        opListWrap.querySelectorAll('.op-item').forEach(function (el) {
+          el.classList.toggle('op-item-selected', el.getAttribute('data-value') === v);
+        });
+        if (fromClick) setDetailPanel(metaByValue(v));
+        var ev = new Event('change', { bubbles: true });
+        op.dispatchEvent(ev);
+      }
+
+      buildList();
+      selectValue(op.value, false);
+      setDetailPanel(metaByValue(op.value));
+
+      opSearch.addEventListener('input', applyFilter);
+      document.querySelectorAll('input[name="op_match_mode"]').forEach(function (r) {
+        r.addEventListener('change', applyFilter);
+      });
+
+      opListWrap.addEventListener('mouseover', function (e) {
+        var item = e.target.closest('.op-item');
+        if (!item || item.classList.contains('op-item-hidden')) return;
+        var v = item.getAttribute('data-value');
+        setDetailPanel(metaByValue(v));
+      });
+
+      opListWrap.addEventListener('click', function (e) {
+        var item = e.target.closest('.op-item');
+        if (!item || item.classList.contains('op-item-hidden')) return;
+        selectValue(item.getAttribute('data-value'), true);
+      });
+
+      opListWrap.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var item = e.target.closest('.op-item');
+        if (!item || item.classList.contains('op-item-hidden')) return;
+        e.preventDefault();
+        selectValue(item.getAttribute('data-value'), true);
+      });
+
+      function sync() {
+        var v = op.value;
+        document.getElementById('blk_rows').style.display = (v === 'preview_a' || v === 'preview_b') ? 'block' : 'none';
+        document.getElementById('blk_merge').style.display = v === 'merge' ? 'block' : 'none';
+        document.getElementById('blk_emp').style.display = v === 'by_employee' ? 'block' : 'none';
+        document.getElementById('blk_date').style.display = v === 'by_date' ? 'block' : 'none';
+        document.getElementById('blk_topn').style.display = v === 'topn_annual_2024' ? 'block' : 'none';
+        document.getElementById('blk_ext').style.display = (v.indexOf('ext_') === 0) ? 'block' : 'none';
+      }
+      op.addEventListener('change', sync);
+      sync();
+    })();
+  </script>
+</body>
+</html>

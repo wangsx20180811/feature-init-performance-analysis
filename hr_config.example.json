@@ -1,0 +1,20 @@
+{
+  "aliases": {
+    "员工ID": ["工号", "员工编号", "人员编号", "EmpID", "emp_id"],
+    "姓名": ["员工姓名", "名字"],
+    "部门": ["所属部门", "Dept", "部门名称"],
+    "入职日期": ["入职时间", "入司日期"]
+  },
+  "performance_score_column": "绩效评分",
+  "grade_column": "绩效等级",
+  "rater_column": "评分人",
+  "goal_target_column": "目标值",
+  "goal_actual_column": "完成值",
+  "calibration_before_column": "校准前评分",
+  "calibration_after_column": "校准后评分",
+  "grade_band_max_pct": {
+    "S": 0.1,
+    "A": 0.25,
+    "B": 0.5
+  }
+}

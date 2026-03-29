@@ -1,0 +1,24 @@
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.cursor/
+*.log
+
+# 运行期生成（可不提交）
+hr_excel_web/uploads/
+hr_excel_web/exports/
+hr_excel_web/audit_log.csv
+
+# 发布包
+CASE-Excel_merge_release_*.tar.gz
+CASE-Excel_merge_release_*.zip
+
+# Office 打开文件时的临时锁定文件（勿提交）
+~$*.xlsx
+~$*.xls
+~$*.xlsm
+
+# 其它项目导出目录（运行期生成）
+intranet_employee_chat_project/exports/
