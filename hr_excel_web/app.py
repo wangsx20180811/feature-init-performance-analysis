@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import re
 import sys
@@ -32,6 +33,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from merge_excel_data import merge_dataframes
 from perf_data_loader import (
@@ -110,13 +112,9 @@ app = Flask(__name__)
 # 生产环境请设置环境变量 HR_WEB_SECRET_KEY（可与 systemd EnvironmentFile 配合）
 app.secret_key = os.environ.get("HR_WEB_SECRET_KEY", "hr-excel-web-session-key")
 
-# 内置默认密码（演示/内网）；生产可在 EnvironmentFile 中设置 HR_WEB_PASSWORD_* 覆盖（见 deploy_ecs.sh）
-_DEFAULT_USER_PASSWORDS: dict[str, str] = {
-    "hr_admin": "HrPerf@2026",
-    "hr_user": "HrUser@2026",
-    "it_admin": "ItOps@2026",
-    "viewer": "ViewOnly@2026",
-}
+# 内置初始口令：与账号名相同（未设置 HR_WEB_PASSWORD_* 时）。首次登录后须改密方可进入工作台。
+_KNOWN_WEB_USERS = ("hr_admin", "hr_user", "it_admin", "viewer")
+_DEFAULT_USER_PASSWORDS: dict[str, str] = {u: u for u in _KNOWN_WEB_USERS}
 # 用户名 -> 环境变量名（若设置且非空则覆盖默认密码）
 _ENV_PASSWORD_KEYS: dict[str, str] = {
     "hr_admin": "HR_WEB_PASSWORD_HR_ADMIN",
@@ -127,6 +125,7 @@ _ENV_PASSWORD_KEYS: dict[str, str] = {
 
 
 def _build_user_store() -> dict[str, str]:
+    """当前生效的「明文」口令（环境变量或内置默认）；不含用户自助改密后的哈希。"""
     out: dict[str, str] = {}
     for username, default_pwd in _DEFAULT_USER_PASSWORDS.items():
         envk = _ENV_PASSWORD_KEYS.get(username)
@@ -139,7 +138,66 @@ def _build_user_store() -> dict[str, str]:
     return out
 
 
-USER_STORE = _build_user_store()
+# 用户自助改密后的哈希存放路径（优先于环境变量/内置明文）
+_PASSWORD_OVERRIDE_PATH = APP_ROOT / "password_overrides.json"
+
+
+def _load_password_hashes() -> dict[str, str]:
+    """读取本地保存的 pbkdf2 等哈希；文件不存在或损坏则返回空字典。"""
+    path = _PASSWORD_OVERRIDE_PATH
+    if not path.is_file():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _save_password_hashes(hashes: dict[str, str]) -> None:
+    """原子写入并尽量设为仅属主可读（类 Unix）。"""
+    path = _PASSWORD_OVERRIDE_PATH
+    tmp = path.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(hashes, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    tmp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def verify_user_password(username: str, password: str) -> bool:
+    """若存在自助改密哈希则校验哈希，否则与环境变量/内置明文比较。"""
+    hashes = _load_password_hashes()
+    if username in hashes:
+        return check_password_hash(hashes[username], password)
+    store = _build_user_store()
+    return store.get(username) == password
+
+
+def _user_has_password_override(username: str) -> bool:
+    """是否已在网页改密（password_overrides.json 中有哈希）。"""
+    return username in _load_password_hashes()
+
+
+def must_change_initial_password(username: str | None) -> bool:
+    """尚未在网页保存过新口令时，禁止进入工作台（须先改密）。"""
+    if not username or username not in _DEFAULT_USER_PASSWORDS:
+        return False
+    return not _user_has_password_override(username)
+
+
+def _login_uses_env_passwords() -> bool:
+    """任一 HR_WEB_PASSWORD_* 已设非空时，登录口令以环境变量为准（非内置演示）。"""
+    for k in _ENV_PASSWORD_KEYS.values():
+        if os.environ.get(k, "").strip():
+            return True
+    return False
 
 
 def _save_upload(username: str, field: str) -> str | None:
@@ -316,18 +374,64 @@ def _try_prompt_route(
 
 @app.route("/", methods=["GET", "POST"])
 def login():
+    if request.method == "GET":
+        u = session.get("username")
+        if u:
+            if must_change_initial_password(u):
+                return redirect(url_for("change_password"))
+            return redirect(url_for("workspace"))
     if request.method == "POST":
         u = request.form.get("username", "").strip()
         p = request.form.get("password", "").strip()
-        if USER_STORE.get(u) == p:
+        if verify_user_password(u, p):
             session["username"] = u
             session["file_a_path"] = None
             session["perf_paths"] = None
             session.pop("file_b_path", None)
             session.pop("hr_config_path", None)
+            if must_change_initial_password(u):
+                flash("请先修改初始密码后再使用系统")
+                return redirect(url_for("change_password"))
             return redirect(url_for("workspace"))
         flash("账号或密码错误")
-    return render_template("login.html")
+    return render_template(
+        "login.html",
+        login_uses_env_passwords=_login_uses_env_passwords(),
+    )
+
+
+@app.route("/settings/password", methods=["GET", "POST"])
+def change_password():
+    """登录用户自助修改密码；新口令以哈希写入 password_overrides.json，优先于 env/内置。"""
+    username = session.get("username")
+    if not username:
+        return redirect(url_for("login"))
+    if username not in _DEFAULT_USER_PASSWORDS:
+        flash("当前账号不支持在此修改密码")
+        return redirect(url_for("workspace"))
+
+    if request.method == "POST":
+        cur = request.form.get("current_password", "").strip()
+        new1 = request.form.get("new_password", "").strip()
+        new2 = request.form.get("new_password_confirm", "").strip()
+        if not verify_user_password(username, cur):
+            flash("当前密码不正确")
+        elif len(new1) < 8:
+            flash("新密码至少 8 个字符")
+        elif new1 != new2:
+            flash("两次输入的新密码不一致")
+        elif new1 == cur:
+            flash("新密码不能与当前密码相同")
+        elif new1 == username:
+            flash("新密码不能与账号相同")
+        else:
+            h = _load_password_hashes()
+            h[username] = generate_password_hash(new1)
+            _save_password_hashes(h)
+            flash("密码已更新，请牢记新密码")
+            return redirect(url_for("workspace"))
+
+    return render_template("change_password.html", username=username)
 
 
 @app.route("/workspace", methods=["GET", "POST"])
@@ -335,6 +439,9 @@ def workspace():
     username = session.get("username")
     if not username:
         return redirect(url_for("login"))
+    if must_change_initial_password(username):
+        flash("请先修改初始密码")
+        return redirect(url_for("change_password"))
 
     result_text = None
     download_name = None
@@ -536,8 +643,12 @@ def workspace():
 
 @app.route("/download/<filename>")
 def download(filename: str):
-    if not session.get("username"):
+    username = session.get("username")
+    if not username:
         return redirect(url_for("login"))
+    if must_change_initial_password(username):
+        flash("请先修改初始密码")
+        return redirect(url_for("change_password"))
     safe = Path(filename).name
     path = EXPORT_ROOT / safe
     if not path.exists():

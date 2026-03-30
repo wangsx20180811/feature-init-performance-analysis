@@ -6,13 +6,22 @@
   <title>员工绩效分析 - 登录</title>
   <style>
     body { font-family: "Microsoft YaHei", sans-serif; background: #eef2f7; margin: 0; }
-    .box { width: 400px; margin: 72px auto; background: #fff; border-radius: 10px; padding: 28px 28px 22px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+    .box { width: 420px; margin: 56px auto; background: #fff; border-radius: 10px; padding: 28px 28px 22px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
     h1 { font-size: 20px; margin: 0 0 18px; color: #1a1a1a; }
     label { display: block; margin: 10px 0 6px; color: #444; font-size: 14px; }
     input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d0d7de; border-radius: 8px; font-size: 14px; }
     button { width: 100%; margin-top: 18px; padding: 11px; border: none; border-radius: 8px; background: #0969da; color: #fff; font-size: 15px; cursor: pointer; }
     .err { color: #cf222e; font-size: 13px; margin-bottom: 10px; }
-    .hint { font-size: 12px; color: #656d76; margin-top: 14px; line-height: 1.5; }
+    .hint { font-size: 12px; color: #656d76; margin-top: 14px; line-height: 1.55; }
+    .hint-ok {
+      font-size: 13px; color: #1a7f37; margin-top: 14px; line-height: 1.55;
+      padding: 12px 14px; background: #dafbe1; border: 1px solid #4ac26b; border-radius: 8px;
+    }
+    .hint-prod {
+      font-size: 12px; color: #24292f; margin-top: 14px; line-height: 1.55;
+      padding: 12px 14px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 8px;
+    }
+    .hint-prod code { font-size: 11px; background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -23,17 +32,23 @@
     {% endwith %}
     <form method="post">
       <label for="u">账号</label>
-      <input id="u" name="username" autocomplete="username" placeholder="请输入账号" />
+      <input id="u" name="username" autocomplete="username" placeholder="如 hr_admin" />
       <label for="p">密码</label>
-      <input id="p" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" />
+      <input id="p" name="password" type="password" autocomplete="current-password" placeholder="默认与账号相同" />
       <button type="submit">登录</button>
     </form>
+    {% if not login_uses_env_passwords %}
+    <div class="hint-ok">
+      <strong>默认规则</strong>：初始密码与<strong>账号名相同</strong>（例如账号 <code>hr_admin</code> 则密码填 <code>hr_admin</code>）。登录后须<strong>立即修改密码</strong>后方可使用工作台。
+    </div>
+    {% else %}
+    <div class="hint-prod">
+      已在服务器配置 <code>HR_WEB_PASSWORD_*</code> 时，初始口令以环境变量为准（通常与账号不同），不在此页展示。请管理员执行
+      <code>sudo grep '^HR_WEB_PASSWORD_' /etc/default/case-excel-web</code> 或查看 <code>/root/.case-excel-web.initial</code>。
+    </div>
+    {% endif %}
     <p class="hint">
-      账号与密码（任选其一登录）：<br />
-      HR 管理员 hr_admin / HrPerf@2026<br />
-      HR 用户 hr_user / HrUser@2026<br />
-      IT 管理员 it_admin / ItOps@2026<br />
-      浏览 viewer / ViewOnly@2026
+      支持账号：<strong>hr_admin</strong>、<strong>hr_user</strong>、<strong>it_admin</strong>、<strong>viewer</strong>（权限与此前一致）。
     </p>
   </div>
 </body>

@@ -7,9 +7,12 @@ __pycache__/
 *.log
 
 # 运行期生成（可不提交）
+logs/
 hr_excel_web/uploads/
 hr_excel_web/exports/
 hr_excel_web/audit_log.csv
+# 用户自助修改后的口令哈希（运行期生成）
+hr_excel_web/password_overrides.json
 
 # 发布包
 CASE-Excel_merge_release_*.tar.gz

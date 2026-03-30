@@ -18,12 +18,15 @@ tar -czf "$ARCHIVE" \
   --exclude="${BASE}/venv" \
   --exclude="${BASE}/.git" \
   --exclude="${BASE}/.cursor" \
+  --exclude="${BASE}/.vscode" \
   --exclude="${BASE}/__pycache__" \
   --exclude="${BASE}/*/__pycache__" \
   --exclude="${BASE}/*.pyc" \
+  --exclude="${BASE}/logs" \
   --exclude="${BASE}/hr_excel_web/uploads" \
   --exclude="${BASE}/hr_excel_web/exports" \
   --exclude="${BASE}/hr_excel_web/audit_log.csv" \
+  --exclude="${BASE}/hr_excel_web/password_overrides.json" \
   --exclude="${BASE}/intranet_employee_chat_project/exports" \
   --exclude="${BASE}/~\$*.xlsx" \
   --exclude="${BASE}/*/~\$*.xlsx" \

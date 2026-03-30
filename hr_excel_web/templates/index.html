@@ -7,6 +7,7 @@
   <style>
     body { font-family: "Microsoft YaHei", sans-serif; background: #f0f3f8; margin: 0; color: #24292f; }
     header { background: #0969da; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+    header .nav { display: flex; gap: 18px; align-items: center; }
     header a { color: #fff; text-decoration: none; font-size: 14px; }
     .wrap { max-width: 920px; margin: 20px auto; padding: 0 16px; }
     .card { background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -65,13 +66,15 @@
 <body>
   <header>
     <span>员工绩效分析（{{ username }}）</span>
-    <a href="{{ url_for('logout') }}">退出登录</a>
+    <div class="nav">
+      <a href="{{ url_for('change_password') }}">修改密码</a>
+      <a href="{{ url_for('logout') }}">退出登录</a>
+    </div>
   </header>
   <div class="wrap">
     {% with messages = get_flashed_messages() %}
       {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
     {% endwith %}
-
     <form method="post" enctype="multipart/form-data" id="mainform">
     <div class="card">
       <h2>上传表格</h2>
