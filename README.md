@@ -1,6 +1,12 @@
 # CASE-Excel_merge
 
+**Languages / 语言：** **中文（本文）** | [English](README.en.md)
+
 员工绩效与基本信息表的 **Excel 合并、预览、TopN 与扩展分析** 工具集，并提供基于浏览器的 **HR 网页端**（登录后上传表格，通过表单或提示词驱动分析，可下载合并/分析结果）。
+
+### 关于 GitHub 网页上的「文件说明」
+
+在 GitHub 仓库**文件列表**中，每一行右侧显示的是 **该文件/文件夹路径最近一次被修改时，那条 Git 提交的 commit message**，**不是**在仓库里单独配置的「描述」。因此不同路径可能显示不同历史提交（例如「初始化」与「部署增强」），**属正常现象**。若需修改仓库首页顶部简介，请在 GitHub **Settings → General → Repository description** 中填写。
 
 ## 目录
 
@@ -8,7 +14,7 @@
 - [目录结构（概要）](#目录结构概要)
 - [环境要求](#环境要求)
 - [一键部署与启动（对照脚本）](#一键部署与启动对照脚本)
-- [发布包与内网 Linux 上线](#发布包与内网-linux-上线)
+- [发布包与内网 Linux 上线](#发布包与内网-linux-上线)（含 [热升级与数据保留](#热升级与数据保留推荐)）
 - [员工 Web 界面使用说明](#员工-web-界面使用说明)
 - [命令行 main.py 与参数（IT / 脚本）](#命令行-mainpy-与参数it--脚本)
 - [停止 Web 服务](#停止-web-服务)
@@ -145,7 +151,7 @@ chmod +x package_release.sh
 
 会在**项目上一级目录**生成 **`CASE-Excel_merge_release_时间戳.tar.gz`**，已排除 `venv`、`.git`、上传与导出目录、审计日志等（见 **`package_release.sh`**）。**勿**将压缩包输出路径放在被打包的目录内，以免 tar 自包含。
 
-**单机部署（主线，非 Docker 镜像）：** 将 **`tar.gz`** 解压到目标机（如 **阿里云 ECS**，**Ubuntu + systemd**），执行 **`sudo bash scripts/deploy_ecs.sh`** 即可完成：**运行用户**、**venv**、**`pip install -r requirements.txt`**（在线 PyPI，带重试/可选镜像）、**`/etc/default/case-excel-web`** 合并、**首次会话密钥与随机登录密码（可选自动生成）**、**systemd** 单元、**Web 临时文件按天回收（systemd timer）**、**启动与健康检查**。同一套流程可换到其它 **Linux 单机**环境，**不依赖**本项目的 Docker 镜像。
+**单机部署（主线，非 Docker 镜像）：** 将 **`tar.gz`** 解压到目标机（如 **阿里云 ECS**，**Ubuntu + systemd**），执行 **`sudo bash scripts/deploy_ecs.sh`** 即可完成：**运行用户**、**venv**、**`pip install -r requirements.txt`**（在线 PyPI，带重试/可选镜像）、**`/etc/default/case-excel-web`** 合并、**会话密钥**（及可选的随机登录口令）、**systemd** 单元、**Web 临时文件按天回收（systemd timer）**、**启动与健康检查**。同一套流程可换到其它 **Linux 单机**环境，**不依赖**本项目的 Docker 镜像。
 
 **Web 临时文件回收：** 部署脚本会安装 **`case-excel-web-cleanup.timer`**（每日约 03:30，随机延迟最多 1 小时），执行 **`scripts/cleanup_web_temp.sh`**，按 **`CASE_CLEANUP_RETENTION_DAYS`**（默认 **7**）删除 **`hr_excel_web/uploads/`**、**`exports/`** 下「最后修改时间」早于保留天数的文件。**不**使用 logrotate（该工具用于日志轮转，不适合按目录与天龄删用户上传文件）。**不**自动删 **`audit_log.csv`**。
 
@@ -170,6 +176,24 @@ chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh script
 
 - **临时运行（开发调试用）：** `./deploy.sh`，再 `export HR_WEB_HOST=0.0.0.0 HR_WEB_DEBUG=0` 后 `python main.py`。  
 - **ECS / 生产（推荐）：** 使用 **`scripts/deploy_ecs.sh`**（见下一节），可重复执行并注册 **systemd**。
+
+### 热升级与数据保留（推荐）
+
+服务已运行一段时间、目录里已有 **上传/导出/改密文件** 等数据时，**不要先删光部署目录再解压**。推荐在同一部署路径上**覆盖解压**并再次执行部署脚本，以实现**热升级**并尽量保留业务数据。
+
+1. 将新 **`CASE-Excel_merge_release_*.tar.gz`** 上传到服务器（放在**项目上一级目录**或项目内均可）。
+2. 在 **项目目录的上一级** 执行解压，使压缩包内的顶层目录 **`CASE-Excel_merge/`** 覆盖到**现有同名目录**（`tar` 会覆盖包内有的文件；包中未包含的运行期文件通常仍保留，见 **`package_release.sh`** 的排除项）：
+
+```bash
+cd /data/dev   # 示例：部署目录 CASE-Excel_merge 的上一级，请按实际路径修改
+tar -xzf /path/to/CASE-Excel_merge_release_xxxx.tar.gz
+```
+
+3. 进入项目根目录后执行：**`sudo bash scripts/deploy_ecs.sh`**（保持默认即可，**勿**设置 **`DEPLOY_CLEAN_DATA=1`**，否则会清空 uploads/exports 等）。
+
+**不推荐：** 删除当前 **`CASE-Excel_merge`** 下全部文件再重新解压——除非已备份或接受丢失 **`uploads/`**、**`exports/`**、**`password_overrides.json`** 等运行期数据。
+
+**说明：** 若将解压路径换到**全新目录**并修改 systemd 的 **`WorkingDirectory`**，需自行迁移旧目录中的数据，否则等同于新装实例。
 
 ### 3. ECS 一键部署（`scripts/deploy_ecs.sh`）
 
@@ -199,8 +223,8 @@ sudo bash scripts/deploy_ecs.sh
 | `DEPLOY_PURGE_VENV` | `0` | `1` 时删除 **`venv` 后重建** |
 | `DEPLOY_CLEAN_DATA` | `0` | `1` 时清空 **uploads / exports / audit_log**（**危险**） |
 | `DEPLOY_SKIP_SYSTEMD` | `0` | `1` 为**调试**：不建用户、venv 用 root、不写 systemd（**勿用于生产**） |
-| `DEPLOY_SEED_SECRETS` | `1` | `0` 时不在 `/etc/default/case-excel-web` 中自动生成 **`HR_WEB_SECRET_KEY`** / 随机登录密码 |
-| `DEPLOY_GENERATE_LOGIN_PASSWORDS` | `1` | 在 `DEPLOY_SEED_SECRETS=1` 且 env 中尚无 **`HR_WEB_PASSWORD_*`** 时生成随机密码并写入 env；凭据副本 **`/root/.case-excel-web.initial`**（600） |
+| `DEPLOY_SEED_SECRETS` | `1` | `0` 时不在 `/etc/default/case-excel-web` 中自动生成 **`HR_WEB_SECRET_KEY`** |
+| `DEPLOY_GENERATE_LOGIN_PASSWORDS` | `0` | `1` 且 env 中尚无 **`HR_WEB_PASSWORD_*`** 时生成随机统一口令写入四变量（与内置「账号=密码」二选一）；凭据 **`/root/.case-excel-web.initial`** |
 | `DEPLOY_PIP_RETRIES` | `5` | `pip install` 重试次数（缓解网络抖动） |
 | `DEPLOY_PIP_TIMEOUT` | `120` | `pip` 单次超时（秒） |
 | `DEPLOY_PIP_INDEX_URL` | （空） | 国内 ECS 可设为 `https://pypi.tuna.tsinghua.edu.cn/simple` 等镜像，再执行部署脚本 |
@@ -208,7 +232,11 @@ sudo bash scripts/deploy_ecs.sh
 | `CASE_CLEANUP_RETENTION_DAYS` | `7` | **`uploads/`、`exports/`** 内文件「未修改」超过该天数则由定时任务删除（写入 `/etc/default/case-excel-web`） |
 | `CASE_CLEANUP_TIMER_ENABLE` | `1` | `0` 时不安装 **`case-excel-web-cleanup.timer`** |
 
-应用侧（**`/etc/default/case-excel-web`** 或环境变量）：**`HR_WEB_SECRET_KEY`** 会话密钥；**`HR_WEB_PASSWORD_HR_ADMIN`**、**`HR_WEB_PASSWORD_HR_USER`**、**`HR_WEB_PASSWORD_IT_ADMIN`**、**`HR_WEB_PASSWORD_VIEWER`** 覆盖内置默认密码（见 `hr_excel_web/app.py`）。
+应用侧（**`/etc/default/case-excel-web`** 或环境变量）：**`HR_WEB_SECRET_KEY`** 会话密钥；**`HR_WEB_PASSWORD_*`** 若设置则覆盖内置初始规则（见 `hr_excel_web/app.py`）。
+
+**初始登录（默认）**：未配置 **`HR_WEB_PASSWORD_*`** 时，内置规则为 **初始密码与账号名相同**（如 `hr_admin` / `hr_admin`）。**首次登录后必须先修改密码**（写入 **`password_overrides.json`**）方可进入工作台；IT 可将此规则写入员工指引。若设置 **`DEPLOY_GENERATE_LOGIN_PASSWORDS=1`**，部署脚本可改为写入**随机**统一口令（见 env / **`/root/.case-excel-web.initial`**）。修改 env 后需 **`sudo systemctl restart case-excel-web`**。
+
+**自助改密（网页）**：应用将哈希写入 **`hr_excel_web/password_overrides.json`**，**不**回写 **`/etc/default`**。删除该文件或对应用户条目并重启可恢复为 env/内置规则。
 
 升级新版本：**覆盖或解压到新目录后**，再次执行同一脚本即可（会先 **stop**，再 **chown**、装依赖、**start**）。默认 **保留** 用户上传与导出目录。
 
@@ -242,16 +270,16 @@ docker run -d -p 5001:5001 \
 
 ### 1. 登录与账号
 
-内置账号与密码定义在 `hr_excel_web/app.py` 的 `USER_STORE`（**生产环境务必改为企业统一认证或数据库**）：
+内置账号与口令逻辑见 `hr_excel_web/app.py`（**生产环境务必改为企业统一认证或数据库**）。**默认**：初始密码**与账号名相同**；首次登录后**强制**修改密码后方可使用工作台。若配置了 **`HR_WEB_PASSWORD_*`**，则以环境变量为准。
 
-| 用户名 | 说明（注释） | 密码（演示） |
-|--------|--------------|--------------|
-| `hr_admin` | HR 管理员 | `HrPerf@2026` |
-| `hr_user` | HR 业务用户 | `HrUser@2026` |
-| `it_admin` | IT 管理员 | `ItOps@2026` |
-| `viewer` | 只读浏览（当前与其它账号功能相同，便于后续扩展权限） | `ViewOnly@2026` |
+| 用户名 | 说明（注释） | 初始口令（未配置 HR_WEB_PASSWORD_* 时） |
+|--------|--------------|------------------------------------------|
+| `hr_admin` | HR 管理员 | `hr_admin` |
+| `hr_user` | HR 业务用户 | `hr_user` |
+| `it_admin` | IT 管理员 | `it_admin` |
+| `viewer` | 只读浏览（当前与其它账号功能相同，便于后续扩展权限） | `viewer` |
 
-登录成功后会进入工作台；**退出登录**会清空当前会话中的文件路径记录。
+完成首次改密后会进入工作台；**退出登录**会清空当前会话中的文件路径记录。
 
 ### 2. 上传与数据留存（注意事项）
 

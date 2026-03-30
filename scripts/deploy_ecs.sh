@@ -32,13 +32,18 @@ export HR_WEB_DEBUG="${HR_WEB_DEBUG:-0}"
 DEPLOY_PURGE_VENV="${DEPLOY_PURGE_VENV:-0}"
 DEPLOY_CLEAN_DATA="${DEPLOY_CLEAN_DATA:-0}"
 DEPLOY_SKIP_SYSTEMD="${DEPLOY_SKIP_SYSTEMD:-0}"
-# 首次部署：自动生成 HR_WEB_SECRET_KEY 与随机登录密码（若 env 文件中尚未配置）
+# 首次部署：自动生成 HR_WEB_SECRET_KEY；登录口令默认「账号=密码」由应用内置（不写 HR_WEB_PASSWORD_*）
 DEPLOY_SEED_SECRETS="${DEPLOY_SEED_SECRETS:-1}"
-DEPLOY_GENERATE_LOGIN_PASSWORDS="${DEPLOY_GENERATE_LOGIN_PASSWORDS:-1}"
+# 设为 1 时且 env 中尚无 HR_WEB_PASSWORD_* 时，写入随机统一口令（与「账号=密码」二选一，一般保持 0）
+DEPLOY_GENERATE_LOGIN_PASSWORDS="${DEPLOY_GENERATE_LOGIN_PASSWORDS:-0}"
 # pip 网络不稳时加大重试与超时；国内 ECS 可设 DEPLOY_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 DEPLOY_PIP_RETRIES="${DEPLOY_PIP_RETRIES:-5}"
 DEPLOY_PIP_TIMEOUT="${DEPLOY_PIP_TIMEOUT:-120}"
 DEPLOY_PIP_INDEX_URL="${DEPLOY_PIP_INDEX_URL:-}"
+# 永久配置 pip 镜像源（对所有用户生效）：写入 /etc/pip.conf
+DEPLOY_CONFIGURE_PIP_MIRROR="${DEPLOY_CONFIGURE_PIP_MIRROR:-1}"
+DEPLOY_PIP_MIRROR_INDEX_URL="${DEPLOY_PIP_MIRROR_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}"
+DEPLOY_PIP_MIRROR_TRUSTED_HOST="${DEPLOY_PIP_MIRROR_TRUSTED_HOST:-mirrors.aliyun.com}"
 # 设为 1 时即使存在 offline_wheels 也走在线 PyPI（排查离线包问题用）
 DEPLOY_FORCE_ONLINE_PIP="${DEPLOY_FORCE_ONLINE_PIP:-0}"
 # Web 上传/导出：超过 N 天未修改则删除（systemd timer）；0 表示不安装清理定时器
@@ -155,21 +160,19 @@ seed_secrets_to_env_file() {
     wrote_creds=1
     log "[8/12] 已生成 HR_WEB_SECRET_KEY"
   fi
-  if grep -qE '^HR_WEB_PASSWORD_' "$ENV_FILE" 2>/dev/null; then
+  if grep -qE '^[[:space:]]*(export[[:space:]]+)?HR_WEB_PASSWORD_' "$ENV_FILE" 2>/dev/null; then
     log "[8/12] 已存在 HR_WEB_PASSWORD_*，跳过随机登录密码"
   elif [[ "${DEPLOY_GENERATE_LOGIN_PASSWORDS}" != "1" ]]; then
-    log "[8/12] 跳过随机登录密码（DEPLOY_GENERATE_LOGIN_PASSWORDS=0），应用仍使用代码内默认密码"
+    log "[8/12] 跳过随机登录密码（DEPLOY_GENERATE_LOGIN_PASSWORDS=0）；应用使用内置规则：初始密码与账号名相同，首次登录须网页改密"
   else
-    local p1 p2 p3 p4
-    p1="$(openssl rand -hex 10)"
-    p2="$(openssl rand -hex 10)"
-    p3="$(openssl rand -hex 10)"
-    p4="$(openssl rand -hex 10)"
+    # 可选：四个 HR_WEB_PASSWORD_* 使用同一随机串（与内置「账号=密码」互斥）
+    local p0
+    p0="$(openssl rand -hex 12)"
     {
-      echo "HR_WEB_PASSWORD_HR_ADMIN=${p1}"
-      echo "HR_WEB_PASSWORD_HR_USER=${p2}"
-      echo "HR_WEB_PASSWORD_IT_ADMIN=${p3}"
-      echo "HR_WEB_PASSWORD_VIEWER=${p4}"
+      echo "HR_WEB_PASSWORD_HR_ADMIN=${p0}"
+      echo "HR_WEB_PASSWORD_HR_USER=${p0}"
+      echo "HR_WEB_PASSWORD_IT_ADMIN=${p0}"
+      echo "HR_WEB_PASSWORD_VIEWER=${p0}"
     } >>"$ENV_FILE"
     if [[ "$wrote_creds" -eq 0 ]]; then
       {
@@ -180,13 +183,10 @@ seed_secrets_to_env_file() {
       wrote_creds=1
     fi
     {
-      echo "# 登录账号 / 密码（与 EnvironmentFile 中 HR_WEB_PASSWORD_* 一致）"
-      echo "hr_admin   ${p1}"
-      echo "hr_user    ${p2}"
-      echo "it_admin   ${p3}"
-      echo "viewer     ${p4}"
+      echo "# 统一初始登录口令（hr_admin / hr_user / it_admin / viewer 均相同；登录后请在网页修改个人口令）"
+      echo "统一初始口令=${p0}"
     } >>"$creds"
-    log "[8/12] 已生成随机登录密码（用户名与 HR_WEB_PASSWORD_* 对应）"
+    log "[8/12] 已生成统一随机登录口令（四角色 HR_WEB_PASSWORD_* 相同）"
   fi
   if [[ "$wrote_creds" -eq 1 ]]; then
     log "[8/12] 凭据已写入 $creds（权限 600），请备份后删除该文件"
@@ -204,6 +204,28 @@ step_env_check() {
   log "[1/12] 项目目录磁盘空间:"
   df -h "$CASE_ROOT" 2>/dev/null || df -h .
   log "[1/12] Python: $(python3 --version 2>&1)"
+
+  # 永久配置 pip 镜像源（/etc/pip.conf，所有用户生效）
+  if [[ "${DEPLOY_CONFIGURE_PIP_MIRROR}" == "1" ]]; then
+    local pip_conf="/etc/pip.conf"
+    local desired_index_url="${DEPLOY_PIP_INDEX_URL:-$DEPLOY_PIP_MIRROR_INDEX_URL}"
+    local desired_trusted_host="${DEPLOY_PIP_MIRROR_TRUSTED_HOST}"
+
+    if [[ -f "$pip_conf" ]] && grep -qE "^[[:space:]]*index-url[[:space:]]*=[[:space:]]*${desired_index_url}[[:space:]]*$" "$pip_conf" \
+      && grep -qE "^[[:space:]]*trusted-host[[:space:]]*=[[:space:]]*${desired_trusted_host}[[:space:]]*$" "$pip_conf"; then
+      log "[1/12] pip 镜像已配置（$pip_conf）"
+    else
+      log "[1/12] 写入 pip 全局镜像配置（$pip_conf）：$desired_index_url"
+      cat >"$pip_conf" <<EOF
+[global]
+index-url = ${desired_index_url}
+trusted-host = ${desired_trusted_host}
+EOF
+    fi
+  else
+    log "[1/12] 跳过配置 /etc/pip.conf（DEPLOY_CONFIGURE_PIP_MIRROR!=1）"
+  fi
+
   need_cmd python3
   if [[ "$DEPLOY_SKIP_SYSTEMD" != "1" ]]; then
     need_cmd curl
@@ -352,11 +374,35 @@ step_env_file() {
     log "[8/12] 跳过 $ENV_FILE"
     return 0
   fi
-  log "[8/12] 写入 $ENV_FILE（合并 HR_WEB_HOST/PORT/DEBUG；保留 HR_WEB_SECRET_KEY、HR_WEB_PASSWORD_* 等）"
+  # 说明：
+  # - systemd 运行时会把 ENV_FILE 中的变量注入进 Flask 进程。
+  # - 为了让“默认规则：密码=账号名”生效，当 DEPLOY_GENERATE_LOGIN_PASSWORDS=0 时，
+  #   需要移除旧的 HR_WEB_PASSWORD_* 行，避免继续覆盖内置默认口令逻辑。
+  log "[8/12] 写入 $ENV_FILE（合并 HR_WEB_HOST/PORT/DEBUG；保留 HR_WEB_SECRET_KEY；按 DEPLOY_GENERATE_LOGIN_PASSWORDS=${DEPLOY_GENERATE_LOGIN_PASSWORDS} 决定是否移除 HR_WEB_PASSWORD_*）"
   umask 077
   tmpf="$(mktemp)"
   if [[ -f "$ENV_FILE" ]]; then
-    grep -vE '^(HR_WEB_(HOST|PORT|DEBUG)|CASE_EXCEL_PROJECT_ROOT|CASE_CLEANUP_RETENTION_DAYS)=' "$ENV_FILE" | grep -v '^# 由 scripts/deploy_ecs.sh' >"$tmpf" || true
+    if [[ "${DEPLOY_GENERATE_LOGIN_PASSWORDS}" != "1" ]]; then
+      # 关闭自动口令生成：删除旧 HR_WEB_PASSWORD_*，确保回到内置“密码=账号名”规则
+      # 兼容：
+      # - export HR_WEB_PASSWORD_XXX=...
+      # - 行首有空格的写法
+      # - Windows CRLF：去掉行尾 \r，避免正则匹配边界问题
+      sed -e 's/\r$//' "$ENV_FILE" \
+        | sed -E '/^[[:space:]]*(export[[:space:]]+)?HR_WEB_(HOST|PORT|DEBUG)[[:space:]]*=/d;
+                 /^[[:space:]]*(export[[:space:]]+)?HR_WEB_PASSWORD_[_A-Za-z0-9]+[[:space:]]*=/d;
+                 /^[[:space:]]*CASE_EXCEL_PROJECT_ROOT[[:space:]]*=/d;
+                 /^[[:space:]]*CASE_CLEANUP_RETENTION_DAYS[[:space:]]*=/d' \
+        | grep -v '^# 由 scripts/deploy_ecs.sh' >"$tmpf" || true
+    else
+      # 开启自动口令生成：保留现有 HR_WEB_PASSWORD_*，交由 seed_secrets_to_env_file 进行首次写入（存在则跳过）
+      # 仍需要移除旧的 HOST/PORT/DEBUG 与 CASE_* 行，避免残留配置干扰
+      sed -e 's/\r$//' "$ENV_FILE" \
+        | sed -E '/^[[:space:]]*(export[[:space:]]+)?HR_WEB_(HOST|PORT|DEBUG)[[:space:]]*=/d;
+                 /^[[:space:]]*CASE_EXCEL_PROJECT_ROOT[[:space:]]*=/d;
+                 /^[[:space:]]*CASE_CLEANUP_RETENTION_DAYS[[:space:]]*=/d' \
+        | grep -v '^# 由 scripts/deploy_ecs.sh' >"$tmpf" || true
+    fi
   else
     : >"$tmpf"
   fi
@@ -371,6 +417,13 @@ step_env_file() {
   } >>"$tmpf"
   install -m 600 -o root -g root "$tmpf" "$ENV_FILE"
   rm -f "$tmpf"
+  if [[ "${DEPLOY_GENERATE_LOGIN_PASSWORDS}" != "1" ]]; then
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?HR_WEB_PASSWORD_' "$ENV_FILE" 2>/dev/null; then
+      log "[8/12] 警告: 清理 HR_WEB_PASSWORD_* 后仍检测到口令变量仍存在，当前文件: $ENV_FILE"
+    else
+      log "[8/12] 已清理 HR_WEB_PASSWORD_*（账号=密码规则应可生效）"
+    fi
+  fi
   seed_secrets_to_env_file
 }
 
@@ -479,21 +532,29 @@ step_start() {
 }
 
 # --- 12. 健康检查（失败则 exit 非零，部署不算成功）---
+# systemd 标 active 后 Flask 可能仍在加载依赖（如 pandas），端口尚未监听；需轮询而非单次 curl。
 step_health() {
   if [[ "$DEPLOY_SKIP_SYSTEMD" == "1" ]]; then
     log "[12/12] 跳过 HTTP 健康检查（DEPLOY_SKIP_SYSTEMD=1）"
     return 0
   fi
   local url="http://127.0.0.1:${HR_WEB_PORT}/"
-  log "[12/12] 健康检查: $url"
+  log "[12/12] 健康检查: $url（冷启动可能需数十秒，将重试直至就绪）"
   need_cmd curl
-  local code
-  code="$(curl -sS --retry 3 --retry-delay 2 --connect-timeout 5 -o /dev/null -w '%{http_code}' "$url" || echo "000")"
-  if [[ "$code" == "200" ]] || [[ "$code" == "302" ]] || [[ "$code" == "301" ]]; then
-    log "健康检查通过 (HTTP $code)"
-  else
-    die "健康检查失败: HTTP $code（期望 200/301/302）；排查: journalctl -u ${SERVICE_NAME} -n 80 --no-pager"
-  fi
+  local code="000" attempt=0 max_attempts=45
+  while [[ $attempt -lt $max_attempts ]]; do
+    code="$(curl -sS --connect-timeout 3 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+    if [[ "$code" == "200" ]] || [[ "$code" == "302" ]] || [[ "$code" == "301" ]]; then
+      log "健康检查通过 (HTTP $code，第 $((attempt + 1)) 次尝试)"
+      return 0
+    fi
+    if [[ $attempt -eq 0 ]]; then
+      log "[12/12] 应用尚未响应 HTTP ${code:-?}，等待进程完成启动（最多约 $((max_attempts * 2))s）…"
+    fi
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+  die "健康检查失败: 最后 HTTP ${code:-000}（期望 200/301/302）；排查: journalctl -u ${SERVICE_NAME} -n 80 --no-pager"
 }
 
 if [[ "$DEPLOY_SKIP_SYSTEMD" != "1" ]] && [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -519,5 +580,7 @@ log "完整日志已保存: $DEPLOY_LOG_FILE"
 if [[ "$DEPLOY_SKIP_SYSTEMD" != "1" ]]; then
   log "进程以系统用户 $CASE_RUN_USER 运行（非 root）"
   log "查看服务: systemctl status ${SERVICE_NAME} | journalctl -u ${SERVICE_NAME} -f"
+  log "登录 Web：默认初始密码与账号名相同（如 hr_admin / hr_admin），首次登录后须网页改密；若已配置 HR_WEB_PASSWORD_* 则以 env 为准"
+  log "  随机口令（仅 DEPLOY_GENERATE_LOGIN_PASSWORDS=1）见: grep '^HR_WEB_PASSWORD_' $ENV_FILE 或 /root/.case-excel-web.initial"
 fi
 echo ""
