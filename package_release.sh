@@ -24,6 +24,9 @@ tar -czf "$ARCHIVE" \
   --exclude="${BASE}/hr_excel_web/uploads" \
   --exclude="${BASE}/hr_excel_web/exports" \
   --exclude="${BASE}/hr_excel_web/audit_log.csv" \
+  --exclude="${BASE}/intranet_employee_chat_project/exports" \
+  --exclude="${BASE}/~\$*.xlsx" \
+  --exclude="${BASE}/*/~\$*.xlsx" \
   --exclude="${BASE}/CASE-Excel_merge_release_*.tar.gz" \
   "$BASE"
 
@@ -34,6 +37,7 @@ echo ""
 echo "上传到服务器后示例:"
 echo "  tar -xzf $(basename "$ARCHIVE")"
 echo "  cd $BASE"
-echo "  chmod +x deploy.sh run_hr_web.sh package_release.sh scripts/deploy_ecs.sh"
+echo "  chmod +x deploy.sh run_hr_web.sh package_release.sh scripts/deploy_ecs.sh scripts/cleanup_web_temp.sh"
 echo "  （开发）./deploy.sh && source venv/bin/activate && python main.py"
 echo "  （ECS 生产）sudo bash scripts/deploy_ecs.sh"
+echo "  （若创建 venv 失败）apt update && apt install -y python3-venv"

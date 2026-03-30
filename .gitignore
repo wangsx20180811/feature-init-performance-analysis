@@ -22,3 +22,9 @@ CASE-Excel_merge_release_*.zip
 
 # 其它项目导出目录（运行期生成）
 intranet_employee_chat_project/exports/
+
+# 离线 wheel 体积大：在 Linux（与 ECS 同版本）执行 scripts/download_offline_wheels.sh 生成后打入发布包，一般不提交仓库
+offline_wheels/*.whl
+offline_wheels/*.tar.gz
+offline_wheels/*.zip
+offline_wheels/.requirements.sha256

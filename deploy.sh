@@ -17,7 +17,7 @@ fi
 if [ ! -d "venv" ]; then
   echo "[1/2] 创建虚拟环境 venv ..."
   if ! python3 -m venv venv; then
-    echo "[错误] 创建 venv 失败。Debian/Ubuntu 可尝试: sudo apt install python3-venv"
+    echo "[错误] 创建 venv 失败。Ubuntu/Debian 请先: sudo apt update && sudo apt install -y python3-venv（或 python3.12-venv 等与 python3 主版本一致的包）"
     exit 1
   fi
 else
