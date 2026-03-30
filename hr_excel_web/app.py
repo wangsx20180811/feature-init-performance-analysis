@@ -110,13 +110,36 @@ app = Flask(__name__)
 # 生产环境请设置环境变量 HR_WEB_SECRET_KEY（可与 systemd EnvironmentFile 配合）
 app.secret_key = os.environ.get("HR_WEB_SECRET_KEY", "hr-excel-web-session-key")
 
-# 内置账号（演示/内网试用；生产环境请改为统一认证或数据库）
-USER_STORE = {
-    "hr_admin": "HrPerf@2026",   # HR 管理员
-    "hr_user": "HrUser@2026",    # HR 业务用户
-    "it_admin": "ItOps@2026",    # IT 管理员
-    "viewer": "ViewOnly@2026",   # 只读浏览（当前功能与上列相同，便于后续扩展权限）
+# 内置默认密码（演示/内网）；生产可在 EnvironmentFile 中设置 HR_WEB_PASSWORD_* 覆盖（见 deploy_ecs.sh）
+_DEFAULT_USER_PASSWORDS: dict[str, str] = {
+    "hr_admin": "HrPerf@2026",
+    "hr_user": "HrUser@2026",
+    "it_admin": "ItOps@2026",
+    "viewer": "ViewOnly@2026",
 }
+# 用户名 -> 环境变量名（若设置且非空则覆盖默认密码）
+_ENV_PASSWORD_KEYS: dict[str, str] = {
+    "hr_admin": "HR_WEB_PASSWORD_HR_ADMIN",
+    "hr_user": "HR_WEB_PASSWORD_HR_USER",
+    "it_admin": "HR_WEB_PASSWORD_IT_ADMIN",
+    "viewer": "HR_WEB_PASSWORD_VIEWER",
+}
+
+
+def _build_user_store() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for username, default_pwd in _DEFAULT_USER_PASSWORDS.items():
+        envk = _ENV_PASSWORD_KEYS.get(username)
+        if envk:
+            v = os.environ.get(envk, "").strip()
+            if v:
+                out[username] = v
+                continue
+        out[username] = default_pwd
+    return out
+
+
+USER_STORE = _build_user_store()
 
 
 def _save_upload(username: str, field: str) -> str | None:

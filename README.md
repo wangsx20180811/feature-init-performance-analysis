@@ -98,7 +98,7 @@
 
 ```bash
 cd /path/to/CASE-Excel_merge
-chmod +x deploy.sh run_hr_web.sh package_release.sh   # 首次从压缩包解压时建议执行
+chmod +x deploy.sh run_hr_web.sh package_release.sh scripts/deploy_ecs.sh scripts/cleanup_web_temp.sh   # 首次从压缩包解压时建议执行
 ./deploy.sh
 source venv/bin/activate
 ```
@@ -145,11 +145,17 @@ chmod +x package_release.sh
 
 会在**项目上一级目录**生成 **`CASE-Excel_merge_release_时间戳.tar.gz`**，已排除 `venv`、`.git`、上传与导出目录、审计日志等（见 **`package_release.sh`**）。**勿**将压缩包输出路径放在被打包的目录内，以免 tar 自包含。
 
+**单机部署（主线，非 Docker 镜像）：** 将 **`tar.gz`** 解压到目标机（如 **阿里云 ECS**，**Ubuntu + systemd**），执行 **`sudo bash scripts/deploy_ecs.sh`** 即可完成：**运行用户**、**venv**、**`pip install -r requirements.txt`**（在线 PyPI，带重试/可选镜像）、**`/etc/default/case-excel-web`** 合并、**首次会话密钥与随机登录密码（可选自动生成）**、**systemd** 单元、**Web 临时文件按天回收（systemd timer）**、**启动与健康检查**。同一套流程可换到其它 **Linux 单机**环境，**不依赖**本项目的 Docker 镜像。
+
+**Web 临时文件回收：** 部署脚本会安装 **`case-excel-web-cleanup.timer`**（每日约 03:30，随机延迟最多 1 小时），执行 **`scripts/cleanup_web_temp.sh`**，按 **`CASE_CLEANUP_RETENTION_DAYS`**（默认 **7**）删除 **`hr_excel_web/uploads/`**、**`exports/`** 下「最后修改时间」早于保留天数的文件。**不**使用 logrotate（该工具用于日志轮转，不适合按目录与天龄删用户上传文件）。**不**自动删 **`audit_log.csv`**。
+
+**可选增强：** 若需在无公网 PyPI 的环境加速/离线安装 Python 包，可使用项目内 **`offline_wheels/`** 与 **`scripts/download_offline_wheels*.sh`**（详见 **`offline_wheels/README.txt`**）；**无离线目录时按在线安装即可**，不必作为部署前提。
+
 **打包与上线前自检（建议）：**
 
 1. 本地执行 `python -m py_compile main.py`、`python -m py_compile hr_excel_web/app.py`（或通过 IDE）确认无语法错误；可选运行 `python main.py` 做冒烟。
 2. **生产**在目标机或 **`/etc/default/case-excel-web`** 中设置 **`HR_WEB_SECRET_KEY`**（长随机字符串），勿使用默认演示密钥。
-3. 解压上传后执行 **`chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh`**（若从压缩包解压）。
+3. 解压上传后执行 **`chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh scripts/cleanup_web_temp.sh`**（若从压缩包解压）。
 4. ECS 使用 **`sudo bash scripts/deploy_ecs.sh`**，确认 **`systemctl status case-excel-web`** 为 **active**，必要时 **`journalctl -u case-excel-web -n 30`**。
 
 ### 2. 服务器解压与部署
@@ -159,7 +165,7 @@ chmod +x package_release.sh
 ```bash
 tar -xzf CASE-Excel_merge_release_xxxx.tar.gz
 cd CASE-Excel_merge
-chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh
+chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh scripts/cleanup_web_temp.sh
 ```
 
 - **临时运行（开发调试用）：** `./deploy.sh`，再 `export HR_WEB_HOST=0.0.0.0 HR_WEB_DEBUG=0` 后 `python main.py`。  
@@ -172,6 +178,8 @@ chmod +x package_release.sh deploy.sh run_hr_web.sh scripts/deploy_ecs.sh
 **Web 进程不以 root 运行**：默认创建系统用户 **`caseexcel`**（与 `CASE_RUN_USER` 一致），**venv 与 pip 以该用户执行**，**systemd 中 `User=` / `Group=`** 为该用户；`WorkingDirectory` 为项目根目录。
 
 脚本步骤概要：**停止旧服务** → **创建用户（若不存在）** → 可选清理数据 → **`chown -R` 项目** → **venv + pip（sudo -u caseexcel）** → 合并写入 **`/etc/default/case-excel-web`**（`600`）→ 安装 **systemd**（含 `PrivateTmp` / `NoNewPrivileges`）→ **start** → **curl**。
+
+**首次部署前（Ubuntu / Debian 最小化镜像）：** 建议执行 `apt update && apt install -y python3-venv`（或 `python3.12-venv` 等与当前 `python3` 主版本一致），`sudo` 与 `curl`（健康检查可选）亦需已安装；否则创建 venv 或检查 HTTP 会失败。
 
 ```bash
 cd /path/to/CASE-Excel_merge   # 解压后的项目根
@@ -191,6 +199,16 @@ sudo bash scripts/deploy_ecs.sh
 | `DEPLOY_PURGE_VENV` | `0` | `1` 时删除 **`venv` 后重建** |
 | `DEPLOY_CLEAN_DATA` | `0` | `1` 时清空 **uploads / exports / audit_log**（**危险**） |
 | `DEPLOY_SKIP_SYSTEMD` | `0` | `1` 为**调试**：不建用户、venv 用 root、不写 systemd（**勿用于生产**） |
+| `DEPLOY_SEED_SECRETS` | `1` | `0` 时不在 `/etc/default/case-excel-web` 中自动生成 **`HR_WEB_SECRET_KEY`** / 随机登录密码 |
+| `DEPLOY_GENERATE_LOGIN_PASSWORDS` | `1` | 在 `DEPLOY_SEED_SECRETS=1` 且 env 中尚无 **`HR_WEB_PASSWORD_*`** 时生成随机密码并写入 env；凭据副本 **`/root/.case-excel-web.initial`**（600） |
+| `DEPLOY_PIP_RETRIES` | `5` | `pip install` 重试次数（缓解网络抖动） |
+| `DEPLOY_PIP_TIMEOUT` | `120` | `pip` 单次超时（秒） |
+| `DEPLOY_PIP_INDEX_URL` | （空） | 国内 ECS 可设为 `https://pypi.tuna.tsinghua.edu.cn/simple` 等镜像，再执行部署脚本 |
+| `DEPLOY_FORCE_ONLINE_PIP` | `0` | 仅当使用可选 **`offline_wheels/`** 时：设为 `1` 强制在线 `pip` |
+| `CASE_CLEANUP_RETENTION_DAYS` | `7` | **`uploads/`、`exports/`** 内文件「未修改」超过该天数则由定时任务删除（写入 `/etc/default/case-excel-web`） |
+| `CASE_CLEANUP_TIMER_ENABLE` | `1` | `0` 时不安装 **`case-excel-web-cleanup.timer`** |
+
+应用侧（**`/etc/default/case-excel-web`** 或环境变量）：**`HR_WEB_SECRET_KEY`** 会话密钥；**`HR_WEB_PASSWORD_HR_ADMIN`**、**`HR_WEB_PASSWORD_HR_USER`**、**`HR_WEB_PASSWORD_IT_ADMIN`**、**`HR_WEB_PASSWORD_VIEWER`** 覆盖内置默认密码（见 `hr_excel_web/app.py`）。
 
 升级新版本：**覆盖或解压到新目录后**，再次执行同一脚本即可（会先 **stop**，再 **chown**、装依赖、**start**）。默认 **保留** 用户上传与导出目录。
 
